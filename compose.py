@@ -1,18 +1,22 @@
+#! /usr/bin/env python3
+
+# -*- coding: utf-8 -*-
+
+
 import nbformat as nbf
 import json
 import re
 import argparse
+import os
 
 
 def add_cells_to_notebook(notebook, cells, replace_pairs=None):
-    """Adds cells to the notebook in the correct format with optional replacements."""
+    """Adds cells to the notebook with optional replacements."""
     replace_pairs = replace_pairs or {}
 
     for cell in cells:
         source = cell["source"]
-        # Apply replacements to the source code
         for old, new in replace_pairs.items():
-            # Ensure only exact matches are replaced (e.g., words or variables)
             source = re.sub(
                 rf"(?<![a-zA-Z0-9]){re.escape(old)}(?![a-zA-Z0-9])", new, source
             )
@@ -63,30 +67,120 @@ def add_sections_to_notebook(notebook, sections, template_sections, level=1):
 
         # Add all children if "all" is set to True
         if all_option:
-            for child in section_data.get("children", []):
-                add_sections_to_notebook(
-                    notebook,
-                    {child["name"]: {"all": True}},
-                    template_sections,
-                    level + 1,
-                )
+            # First add explicitly defined children
+            for child_name, child_options in children.items():
+                child_data = find_section(section_data.get("children", []), child_name)
+                if child_data:
+                    add_sections_to_notebook(
+                        notebook,
+                        {child_name: child_options},
+                        section_data.get("children", []),
+                        level + 1,
+                    )
 
-        # Recursively add specific children if provided
-        if children:
+            # Then add remaining children from the template that were not explicitly defined
+            for child in section_data.get("children", []):
+                if child["name"] not in children:
+                    add_sections_to_notebook(
+                        notebook,
+                        {child["name"]: {"all": True}},
+                        section_data.get("children", []),
+                        level + 1,
+                    )
+
+        # Recursively add specific children if provided and 'all' is not set
+        if children and not all_option:
             add_sections_to_notebook(
                 notebook, children, section_data.get("children", []), level + 1
             )
 
 
-def compose_notebook_from_template(template_data, input_sections):
-    """Composes a notebook based on the structure in a template JSON file."""
-    # Create a new notebook
-    new_nb = nbf.v4.new_notebook()
+def extract_sections_from_notebook(notebook):
+    """Extracts sections from an existing notebook into a JSON structure."""
+    sections = []
+    stack = []  # Track the current section hierarchy
+    for cell in notebook.cells:
+        if cell.cell_type == "markdown":
+            # Detect headers based on the number of "#" symbols
+            header_match = re.match(r"^(#+)\s+(.*)", cell.source)
+            if header_match:
+                level = len(header_match.group(1))
+                title = header_match.group(2)
 
-    # Add sections and subsections using the provided input dictionary
-    add_sections_to_notebook(new_nb, input_sections, template_data["sections"])
+                # Create a new section
+                new_section = {"name": title, "cells": []}
 
-    return new_nb
+                # Adjust the section hierarchy based on header level
+                while stack and stack[-1][0] >= level:
+                    stack.pop()
+
+                if stack:
+                    # Add as a child of the current section
+                    parent = stack[-1][1]
+                    if "children" not in parent:
+                        parent["children"] = []
+                    parent["children"].append(new_section)
+                else:
+                    sections.append(new_section)
+
+                # Push the new section onto the stack
+                stack.append((level, new_section))
+            else:
+                # Add markdown cells that aren't headers to the current section
+                if stack:
+                    stack[-1][1]["cells"].append(
+                        {"cell_type": "markdown", "source": cell.source}
+                    )
+
+        elif cell.cell_type == "code":
+            # Add code cells to the current section
+            if stack:
+                stack[-1][1]["cells"].append(
+                    {"cell_type": "code", "source": cell.source}
+                )
+
+    return sections
+
+
+def create_selection_from_input(input_path, include_all=False):
+    """Generates a selection.json from either a notebook or template input."""
+    if input_path.endswith(".json"):
+        input_type = "template"
+    elif input_path.endswith(".ipynb"):
+        input_type = "notebook"
+
+    def recurse_sections(sections):
+        selection = {}
+        for section in sections:
+            children = section.get("children", [])
+            # Populate the section structure with optional fields for user modification
+            selection[section["name"]] = {
+                "title": section["name"],  # Default title as section name
+                "replace": {},  # Empty replace field
+                "all": include_all,  # Option to include all subsections
+            }
+            if children:
+                # Recurse into subsections if they exist
+                selection[section["name"]].update(recurse_sections(children))
+        return selection
+
+    if input_type == "template":
+        with open(input_path, "r") as f:
+            template_data = json.load(f)
+        return recurse_sections(template_data)
+
+    elif input_type == "notebook":
+        with open(input_path, "r") as f:
+            notebook_data = nbf.read(f, as_version=4)
+        sections = extract_sections_from_notebook(notebook_data)
+        return recurse_sections(sections)
+
+
+def save_selection_file(selection_data, output_path="selection.json"):
+    """Saves the generated selection.json to a file."""
+    with open(output_path, "w") as f:
+        json.dump(selection_data, f, indent=4)
+    print(f"Selection file saved to {output_path}")
 
 
 def save_notebook(notebook, filename):
@@ -96,40 +190,89 @@ def save_notebook(notebook, filename):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Compose a notebook from a JSON template"
+    parser = argparse.ArgumentParser(description="Compose or extract notebook sections")
+
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "-nb",
+        "--notebook",
+        help="Path to input notebook (.ipynb). Used to either extract sections or compose a notebook.",
     )
-    parser.add_argument(
+    group.add_argument(
         "-t",
         "--template",
-        help="Path to JSON template file",
-        default="template.json",
-        required=False,
+        help="Path to JSON template file (sections.json)",
     )
+
     parser.add_argument(
         "-s",
         "--selection",
-        help="Path to user dictionary with selected sections' structure",
-        required=True,
+        help="Path to user dictionary with selected sections' structure (required for composition)",
     )
     parser.add_argument(
         "-o",
         "--output",
-        help="Path to save notebook",
+        help="Path to save notebook or sections JSON",
         required=False,
-        default="composed.ipynb",
+        default="output.ipynb",
+    )
+
+    parser.add_argument(
+        "--create-selection",
+        action="store_true",
+        help="Create a selection.json from the template or notebook",
     )
 
     args = parser.parse_args()
 
-    with open(args.template, "r") as f:
-        template_data = json.load(f)
+    if args.create_selection:
+        # Generate selection.json from notebook or template
+        if args.template:
+            selection_data = create_selection_from_input(args.template)
+            output_path = (
+                f"{os.path.basename(args.template).replace('.json','_selection.json')}"
+            )
+        elif args.notebook:
+            selection_data = create_selection_from_input(args.notebook)
+            output_path = (
+                f"{os.path.basename(args.notebook).replace('.ipynb','_selection.json')}"
+            )
 
-    with open(args.selection, "r") as f:
-        input_data = json.load(f)
+        save_selection_file(selection_data, output_path=output_path)
 
-    # Load template JSON and compose the notebook
-    composed_nb = compose_notebook_from_template(template_data, input_data)
+    if args.notebook and not args.selection:
+        # Extract sections from notebook and save to sections.json
+        with open(args.notebook, "r") as f:
+            notebook_data = nbf.read(f, as_version=4)
 
-    # Save the composed notebook to an output file
-    save_notebook(composed_nb, args.output)
+        output_path = os.path.basename(args.notebook).replace(".ipynb", ".json")
+        sections = extract_sections_from_notebook(notebook_data)
+        with open(output_path, "w") as f:
+            json.dump(sections, f, indent=4)
+        print(f"Sections extracted and saved to {output_path}")
+
+    elif args.notebook and args.selection:
+        # Compose notebook using input notebook as template
+        with open(args.notebook, "r") as f:
+            template_data = extract_sections_from_notebook(nbf.read(f, as_version=4))
+
+        with open(args.selection, "r") as f:
+            input_data = json.load(f)
+
+        composed_nb = nbf.v4.new_notebook()
+        add_sections_to_notebook(composed_nb, input_data, template_data)
+        save_notebook(composed_nb, args.output)
+        print(f"Notebook composed and saved to {args.output}")
+
+    elif args.template and args.selection:
+        # Compose notebook using sections.json as template
+        with open(args.template, "r") as f:
+            template_data = json.load(f)
+
+        with open(args.selection, "r") as f:
+            input_data = json.load(f)
+
+        composed_nb = nbf.v4.new_notebook()
+        add_sections_to_notebook(composed_nb, input_data, template_data)
+        save_notebook(composed_nb, args.output)
+        print(f"Notebook composed and saved to {args.output}")
