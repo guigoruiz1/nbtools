@@ -1,0 +1,15 @@
+{
+    "Preamble": {
+        "all": false
+    },
+    "Preamble / Imports": {
+        "all": true
+    },
+    "Preamble / Parameters": {
+        "all": true,
+        "title": "custom parameters",
+        "replace": {
+            "g": "d"
+        }
+    }
+}
