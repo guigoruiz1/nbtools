@@ -2,8 +2,6 @@
 
 # -*- coding: utf-8 -*-
 
-# generate_toc.py
-
 import argparse
 import nbformat as nbf
 
@@ -66,11 +64,22 @@ def add_toc_to_notebook(notebook, toc_markdown):
             break
 
 
-def main(notebook_file, output_file):
-    """Main method to read a notebook, generate a ToC, and save the updated notebook."""
+def remove_existing_toc(notebook):
+    """Removes the existing Table of Contents (ToC) from the notebook."""
+    toc_marker = 'class="jp-toc-ignore"'
+    notebook.cells = [
+        cell for cell in notebook.cells if toc_marker not in cell.get("source", "")
+    ]
+
+
+def main(notebook_file, output_file=None):
+    """Main method to read a notebook, generate a ToC, and save the updated notebook or print the ToC."""
     # Load the notebook
     with open(notebook_file, "r") as f:
         notebook = nbf.read(f, as_version=4)
+
+    # Remove existing ToC if present
+    remove_existing_toc(notebook)
 
     # Generate the ToC
     toc = generate_toc(notebook)
