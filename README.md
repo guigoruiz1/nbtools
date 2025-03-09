@@ -1,7 +1,6 @@
+# nbtools
 
-# nbcompose
-
-This repository contains scripts to manage and compose Jupyter notebooks. The main scripts are `toc.py` and `compose.py`.
+This repository contains scripts to manage and compose Jupyter notebooks for the JupyterLab template. The main scripts are `toc.py`, `compose.py`, and `generate_auto_theme.py`.
 
 ## toc.py
 
@@ -72,4 +71,18 @@ python compose.py -t <template> [-s <selection>] [-o <output>] [--create-selecti
     ```
 
     This will create a `notebook_selection.json` file based on `notebook.ipynb`.
+
+## generate_auto_theme.py
+
+The `generate_auto_theme.py` script generates a CSS file that automatically switches between light and dark themes based on the user's system preferences for the NBConvert "Lab" template.
+
+### Usage
+
+Simply run the script to generate the `theme-auto.css` file and update the necessary template files.
+
+```sh
+python generate_auto_theme.py
+```
+
+This will generate the `theme-auto.css` file and update the `index.html.j2` and `conf.json` files in the JupyterLab template directory.
 
