@@ -2,7 +2,6 @@
 
 # -*- coding: utf-8 -*-
 
-
 import nbformat as nbf
 import json
 import re
