@@ -44,7 +44,7 @@ def format_toc(toc):
         number_string = ".".join(str(numbering[l]) for l in range(1, level + 1))
         toc_markdown.append(
             "  " * (level - 1)
-            + f'* [{number_string} {heading}](#{heading.lower().replace(" ", "-")})'
+            + f'* [{number_string} {heading}](#{heading.replace(" ", "-")})'
         )
 
     return "\n".join(toc_markdown)
