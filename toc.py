@@ -3,6 +3,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import re
 import nbformat as nbf
 
 
@@ -17,7 +18,17 @@ def generate_toc(notebook):
                 if line.startswith("#"):
                     level = line.count("#")
                     heading_text = line.lstrip("#").strip()
-                    toc.append((level, heading_text))
+
+                    # Check if heading already has a number prefix (e.g., "1", "1.2", "1.2.3")
+                    match = re.match(r"^(\d+(?:\.\d+)*)\s+(.*)$", heading_text)
+                    if match:
+                        existing_number = match.group(1)
+                        clean_text = match.group(2)
+                    else:
+                        existing_number = None
+                        clean_text = heading_text
+
+                    toc.append((level, clean_text, existing_number))
     return toc
 
 
@@ -28,23 +39,29 @@ def format_toc(toc):
     ]
     numbering = {}
 
-    for level, heading in toc:
-        # Create a number for the current heading
-        if level not in numbering:
-            numbering[level] = 1
+    for level, heading, existing_number in toc:
+        if existing_number:
+            # Use the existing number from the heading
+            number_string = existing_number
+            anchor = f"{number_string} {heading}".replace(" ", "-")
         else:
-            numbering[level] += 1
+            # Generate a new number for this heading
+            if level not in numbering:
+                numbering[level] = 1
+            else:
+                numbering[level] += 1
 
-        # Reset numbering for sublevels
-        for l in range(level + 1, max(numbering.keys()) + 1):
-            if l in numbering:
+            # Reset numbering for sublevels
+            levels_to_reset = [l for l in numbering.keys() if l > level]
+            for l in levels_to_reset:
                 numbering[l] = 0
 
-        # Create a number string for the heading
-        number_string = ".".join(str(numbering[l]) for l in range(1, level + 1))
+            # Create a number string for the heading
+            number_string = ".".join(str(numbering[l]) for l in range(1, level + 1))
+            anchor = heading.replace(" ", "-")
+
         toc_markdown.append(
-            "  " * (level - 1)
-            + f'* [{number_string} {heading}](#{heading.replace(" ", "-")})'
+            "  " * (level - 1) + f"* [{number_string} {heading}](#{anchor})"
         )
 
     return "\n".join(toc_markdown)
